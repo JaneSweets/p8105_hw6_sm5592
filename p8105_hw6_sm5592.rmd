@@ -9,6 +9,7 @@ output: github_document
 library(tidyverse)
 library(rvest)
 library(latex2exp)
+library(gridExtra)
 
 knitr::opts_chunk$set(
   fig.width = 8,
@@ -116,3 +117,90 @@ OR_sex_df |>
 It could be concluded that New York, NY has the lowest OR, while Albuquerque, NM has the highest OR in terms of solving homicides comparing male victims to female victims.
 
 # Problem 2
+
+First, download the data.
+```{r}
+weather_df = 
+  rnoaa::meteo_pull_monitors(
+    c("USW00094728"),
+    var = c("PRCP", "TMIN", "TMAX"), 
+    date_min = "2022-01-01",
+    date_max = "2022-12-31") |>
+  mutate(
+    name = recode(id, USW00094728 = "CentralPark_NY"),
+    tmin = tmin / 10,
+    tmax = tmax / 10) |>
+  select(name, id, everything())
+```
+
+Focus on a linear regression with `tmax` as the response with `tmin` and `prcp` as the predictors. Use 5000 bootstrap samples to produce estimates for $\hat r^2$ and $log(\hat \beta_1*\hat \beta_2)$.
+
+```{r}
+boot_sample = function(df) {
+  
+  sample_frac(df, replace = T)
+  
+}
+
+boot_straps =
+  tibble(strap_number = 1:5000) |> 
+  mutate(
+    strap_sample = map(strap_number, \(i) boot_sample(weather_df))
+  )
+
+boot_results =
+  boot_straps |> 
+  mutate(
+    models = map(strap_sample, \(df) lm(tmax ~ tmin + prcp, data = df)),
+    results = map(models, broom::tidy)
+  ) |> 
+  unnest(results) |> 
+  select(strap_number, models, term, estimate) |> 
+  pivot_wider(
+    names_from = term,
+    values_from = estimate
+  ) |> 
+  mutate(
+    log_beta12 = log(tmin * prcp),
+    results = map(models, broom::glance)
+  ) |> 
+  unnest(results) |> 
+  select(strap_number, r.squared, log_beta12) |> 
+  pivot_longer(
+    r.squared:log_beta12,
+    names_to = "term",
+    values_to = "estimate"
+  )
+
+p1 = 
+  boot_results |> 
+  filter(term == "r.squared") |> 
+  ggplot(aes(x = estimate)) +
+  geom_density() +
+  labs(title = TeX("$\\hat{r^2}$ Estimate Distribution"),
+       x = TeX("$\\hat{r^2}$"))
+
+p2 = 
+  boot_results |> 
+  filter(term == "log_beta12") |> 
+  ggplot(aes(x = estimate)) +
+  geom_density() +
+  labs(title = TeX("$log(\\hat{\\beta_1}*\\hat{\\beta_2})$ Estimate Distribution"),
+       x = TeX("$log(\\hat{\\beta_1}*\\hat{\\beta_2})$"))
+
+grid.arrange(p1, p2, nrow = 1)
+```
+
+The two distributions are both left skewed, which indicates that the variability observed in the `tmax` could be well explained by `tmin` and `prcp`, and the interaction between two independent variables should be considered. The mode for $\hat r_2$ is around 0.92, and the mode for $log(\hat \beta_1*\hat \beta_2)$ is around -5.5.
+```{r echo=F}
+tibble(
+  r_square_low = boot_results |> filter(term == "r.squared") |> pull(estimate) |> quantile(0.025),
+  r_square_high = boot_results |> filter(term == "r.squared") |> pull(estimate) |> quantile(0.975),
+  log_beta_low = boot_results |> filter(term == "log_beta12") |> pull(estimate) |> quantile(0.025, na.rm = T),
+  log_beta_high = boot_results |> filter(term == "log_beta12") |> pull(estimate) |> quantile(0.975, na.rm = T)
+) |> 
+  knitr::kable()
+```
+
+So the confidence interval for $\hat r_2$ is [0.89,0.94], and the confidence interval for $log(\hat \beta_1*\hat \beta_2)$ is [-9.13,-4.58].
+
