@@ -50,7 +50,8 @@ homicide_df =
     city_state != "Tulsa, AL",
     city_state != "Dallas, TX",
     city_state != "Phoenix, AZ",
-    city_state != "Kansas City, MO"
+    city_state != "Kansas City, MO",
+    victim_race %in% c("White", "Black")
   )
 ```
 
@@ -115,7 +116,7 @@ OR_sex_df |>
   labs(title = "OR Among Cities")
 ```
 
-It could be concluded that New York, NY has the lowest OR, while Albuquerque, NM has the highest OR in terms of solving homicides comparing male victims to female victims.
+It could be concluded that New York, NY has the lowest OR, while Albuquerque, NM has the highest OR in terms of solving homicides comparing male victims to female victims. From this plot we see that most cities have odds ratios that are smaller than 1, suggesting that crimes with male victims have smaller odds of resolution compared to crimes with female victims after adjusting for victim age and race. This disparity is strongest in New yrok. In roughly half of these cities, confidence intervals are narrow and do not contain 1, suggesting a significant difference in resolution rates by sex after adjustment for victim age and race.
 
 # Problem 2
 
@@ -160,7 +161,10 @@ boot_results =
   pivot_wider(
     names_from = term,
     values_from = estimate
-  ) |> 
+  )
+
+boot_estimates =
+  boot_results |> 
   mutate(
     log_beta12 = log(tmin * prcp),
     results = map(models, broom::glance)
@@ -174,7 +178,7 @@ boot_results =
   )
 
 p1 = 
-  boot_results |> 
+  boot_estimates |> 
   filter(term == "r.squared") |> 
   ggplot(aes(x = estimate)) +
   geom_density() +
@@ -182,7 +186,7 @@ p1 =
        x = TeX("$\\hat{r^2}$"))
 
 p2 = 
-  boot_results |> 
+  boot_estimates |> 
   filter(term == "log_beta12") |> 
   ggplot(aes(x = estimate)) +
   geom_density() +
@@ -192,13 +196,16 @@ p2 =
 grid.arrange(p1, p2, nrow = 1)
 ```
 
-The two distributions are both left skewed, which indicates that the variability observed in the `tmax` could be well explained by `tmin` and `prcp`, and the interaction between two independent variables should be considered. The mode for $\hat r_2$ is around 0.92, and the mode for $log(\hat \beta_1*\hat \beta_2)$ is around -5.5.
+Note: As log calculation requires the value to be larger than 0, `r boot_results |> filter(tmin * prcp <= 0) |> nrow()` observations are omitted when calculating $log(\hat \beta_1*\hat \beta_2)$.
+
+The two distributions are both left skewed, which indicates that the variability observed in the `tmax` could be well explained by `tmin` and `prcp`, and the interaction between two independent variables should be considered. The mode for $\hat r_2$ is around 0.92, and the mode for $log(\hat \beta_1*\hat \beta_2)$ is around -5.5. The lower values may be due to outliers in the samples.
+
 ```{r echo=F}
 tibble(
-  r_square_low = boot_results |> filter(term == "r.squared") |> pull(estimate) |> quantile(0.025),
-  r_square_high = boot_results |> filter(term == "r.squared") |> pull(estimate) |> quantile(0.975),
-  log_beta_low = boot_results |> filter(term == "log_beta12") |> pull(estimate) |> quantile(0.025, na.rm = T),
-  log_beta_high = boot_results |> filter(term == "log_beta12") |> pull(estimate) |> quantile(0.975, na.rm = T)
+  r_square_low = boot_estimates |> filter(term == "r.squared") |> pull(estimate) |> quantile(0.025),
+  r_square_high = boot_estimates |> filter(term == "r.squared") |> pull(estimate) |> quantile(0.975),
+  log_beta_low = boot_estimates |> filter(term == "log_beta12") |> pull(estimate) |> quantile(0.025, na.rm = T),
+  log_beta_high = boot_estimates |> filter(term == "log_beta12") |> pull(estimate) |> quantile(0.975, na.rm = T)
 ) |> 
   knitr::kable()
 ```
@@ -300,4 +307,4 @@ cv_df |>
   ggplot(aes(x = model, y = rmse)) + geom_violin()
 ```
 
-According to the plots shown above, it could be concluded that both two models perform better than the proposed model, and the second model has the lowest RMSE.
+According to the plots shown above, it could be concluded that both two models perform better than the proposed model, and the second model has the lowest RMSE. Therefore, we should consider interaction terms when predicting birth weight.
